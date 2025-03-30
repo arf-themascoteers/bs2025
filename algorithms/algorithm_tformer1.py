@@ -39,8 +39,12 @@ class TFormer(nn.Module):
         attn_weights = attn_weights.mean(dim=1)
         self.band_attention = attn_weights.mean(dim=0)
         self.band_attention = torch.abs(self.band_attention)
-        threshold = torch.topk(self.band_attention, 100).values[-1]
-        if epoch >= 100:
+        self.band_attention = (self.band_attention - self.band_attention.min()) / (self.band_attention.max() - self.band_attention.min())
+        if epoch >= 400:
+            dk = (150 - 50)/(500 - 400)*(epoch-100)
+            k = int(150 - dk)
+            print(k)
+            threshold = torch.topk(self.band_attention, k).values[-1]
             self.band_attention[self.band_attention<threshold] = 0
         X = X*self.band_attention
         y = self.fc_out(X)
