@@ -39,10 +39,12 @@ class TFormer(nn.Module):
         attn_weights = attn_weights.mean(dim=1)
         self.band_attention = attn_weights.mean(dim=0)
         self.band_attention = torch.abs(self.band_attention)
-        self.band_attention = (self.band_attention - self.band_attention.min()) / (self.band_attention.max() - self.band_attention.min())
-        if epoch >= 400:
-            dk = (150 - 50)/(500 - 400)*(epoch-100)
-            k = int(150 - dk)
+        #self.band_attention = (self.band_attention - self.band_attention.min()) / (self.band_attention.max() - self.band_attention.min())
+        if epoch < 400:
+            self.band_attention = self.band_attention + 0.1
+        else:
+            dk = (180 - 50)/(500 - 400)*(epoch-400)
+            k = int(180 - dk)
             print(k)
             threshold = torch.topk(self.band_attention, k).values[-1]
             self.band_attention[self.band_attention<threshold] = 0
@@ -70,26 +72,29 @@ class Algorithm_tformer1(Algorithm):
         loss = 0
         l1_loss = 0
         mse_loss = 0
-
+        lambda_value = 0.01
         for epoch in range(self.total_epoch):
             self.epoch = epoch
+            weights = []
             for batch_idx, (X, y) in enumerate(dataloader):
                 optimizer.zero_grad()
                 y_hat, channel_weights = self.tformer(X, epoch)
-                all_bands, selected_bands = self.get_band_sequence()
-                self.set_all_indices(all_bands)
-                self.set_selected_indices(selected_bands)
-                self.set_weights(channel_weights)
-
+                weights.append(channel_weights.detach().cpu())
                 y = y.type(torch.LongTensor).to(self.device)
                 mse_loss = self.criterion(y_hat, y)
                 l1_loss = self.l1_loss(channel_weights)
                 lambda_value = 0.01#self.get_lambda(epoch + 1)
                 loss = mse_loss + lambda_value * l1_loss
-                if batch_idx == 0 and self.epoch % 10 == 0:
-                    self.report_stats(channel_weights, epoch, mse_loss, l1_loss.item(), lambda_value,loss)
                 loss.backward()
                 optimizer.step()
+            weights = torch.stack(weights)
+            weights = weights.mean(dim=0)
+            all_bands, selected_bands = self.get_band_sequence(weights)
+            self.set_all_indices(all_bands)
+            self.set_selected_indices(selected_bands)
+            self.set_weights(channel_weights)
+            if self.epoch % 10 == 0:
+                self.report_stats(channel_weights, epoch, mse_loss, l1_loss.item(), lambda_value, loss)
 
         print(self.get_name(), "selected bands and weights:")
         print("".join([str(i).ljust(10) for i in self.selected_indices]))
@@ -102,7 +107,7 @@ class Algorithm_tformer1(Algorithm):
 
         l0_cw = torch.norm(channel_weights, p=0).item()
 
-        all_bands, selected_bands = self.get_band_sequence()
+        all_bands, selected_bands = self.get_band_sequence(channel_weights)
 
         oa, aa, k = 0, 0, 0
 
@@ -115,8 +120,8 @@ class Algorithm_tformer1(Algorithm):
                                    l0_cw,
                                    selected_bands, channel_weights)
 
-    def get_band_sequence(self):
-        band_indx = (torch.argsort(self.tformer.band_attention, descending=True)).tolist()
+    def get_band_sequence(self, weights):
+        band_indx = (torch.argsort(weights, descending=True)).tolist()
         return band_indx, band_indx[: self.target_size]
 
     def l1_loss(self, channel_weights):

@@ -1,2 +1,5 @@
 pool -> NN
 repeat -> NN
+===
+minmax scaling setting some weights 0 - early discard
+===remedy: +0.1 for first 100 epochs
