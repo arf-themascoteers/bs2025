@@ -4,7 +4,7 @@ from sklearn.preprocessing import minmax_scale
 
 
 class DSManager:
-    def __init__(self, name, remove_bg=True, test=False):
+    def __init__(self, name, test=False):
         self.name = name
         self.test=test
         dataset_path = f"data/{name}.csv"
