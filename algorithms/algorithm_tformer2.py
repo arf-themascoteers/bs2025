@@ -21,7 +21,8 @@ class TFormer(nn.Module):
         self.mha = nn.MultiheadAttention(1, 1, batch_first=True)
         self.norm = nn.LayerNorm(1)
         self.pos_encoding = nn.Parameter(torch.zeros(1, self.bands,1))
-        self.band_attention = nn.Parameter(torch.ones(self.bands, dtype=torch.float32))
+        self.base_band_attention = nn.Parameter(torch.ones(self.bands))
+        self.band_attention = None
         self.fc_out = nn.Sequential(
             nn.Linear(self.bands, 16),
             nn.LayerNorm(16),
@@ -38,7 +39,7 @@ class TFormer(nn.Module):
         attn_weights = attn_weights.mean(dim=1)
         attn_weights = attn_weights.mean(dim=1)
         attn_weights = attn_weights.mean(dim=0)
-        self.band_attention = self.band_attention + attn_weights
+        self.band_attention = self.base_band_attention + attn_weights
         if epoch < 400:
             self.band_attention = self.band_attention + 0.1
         else:
