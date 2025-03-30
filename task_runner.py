@@ -23,7 +23,7 @@ class TaskRunner:
 
     def evaluate(self):
         for dataset_name in self.task["datasets"]:
-            dataset = DSManager(name=dataset_name, remove_bg=self.remove_bg, test=self.test)
+            dataset = DSManager(name=dataset_name, test=self.test)
             if not self.skip_all_bands:
                 self.evaluate_for_all_features(dataset)
             for algorithm in self.task["algorithms"]:

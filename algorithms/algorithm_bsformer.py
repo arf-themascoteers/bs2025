@@ -7,20 +7,10 @@ import math
 import train_test_evaluator
 
 
-class Sparse(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.k = 0.3
-
-    def forward(self, X):
-        X = torch.where(X < self.k, 0, X)
-        return X
-
-
-class ZhangNet(nn.Module):
+class BSFormer(nn.Module):
     def __init__(self, bands, number_of_classes, last_layer_input):
         super().__init__()
-
+        
         self.bands = bands
         self.number_of_classes = number_of_classes
         self.last_layer_input = last_layer_input
@@ -31,13 +21,19 @@ class ZhangNet(nn.Module):
             nn.Sigmoid()
         )
         self.classnet = nn.Sequential(
-            nn.Linear(self.bands, 300),
+            nn.Conv1d(1,16,kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(16),
             nn.ReLU(),
-            nn.BatchNorm1d(300),
-            nn.Linear(300, 200),
+            nn.MaxPool1d(kernel_size=2, stride=2, padding=0),
+            nn.Conv1d(16, 8, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(8),
             nn.ReLU(),
-            nn.BatchNorm1d(200),
-            nn.Linear(200, self.number_of_classes),
+            nn.MaxPool1d(kernel_size=2, stride=2, padding=0),
+            nn.Conv1d(8, 4, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(4),
+            nn.MaxPool1d(kernel_size=2, stride=2, padding=0),
+            nn.Flatten(start_dim=1),
+            nn.Linear(last_layer_input,self.number_of_classes)
         )
         self.sparse = Sparse()
         num_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
@@ -45,14 +41,14 @@ class ZhangNet(nn.Module):
 
     def forward(self, X):
         channel_weights = self.weighter(X)
-        channel_weights = torch.mean(channel_weights, dim=0)
         sparse_weights = self.sparse(channel_weights)
         reweight_out = X * sparse_weights
+        reweight_out = reweight_out.reshape(reweight_out.shape[0],1,reweight_out.shape[1])
         output = self.classnet(reweight_out)
         return channel_weights, sparse_weights, output
 
 
-class Algorithm_v2(Algorithm):
+class Algorithm_bsformer(Algorithm):
     def __init__(self, target_size:int, dataset, tag, reporter, verbose, test):
         super().__init__(target_size, dataset, tag, reporter, verbose, test)
         self.criterion = torch.nn.CrossEntropyLoss()
@@ -60,16 +56,16 @@ class Algorithm_v2(Algorithm):
         self.last_layer_input = 100
         if self.dataset.name == "paviaU":
             self.last_layer_input = 48
-        self.zhangnet = ZhangNet(self.dataset.get_train_x().shape[1], self.class_size, self.last_layer_input).to(self.device)
+        self.bsformer = BSFormer(self.dataset.get_train_x().shape[1], self.class_size, self.last_layer_input).to(self.device)
         self.total_epoch = 500
         self.epoch = -1
         self.X_train = torch.tensor(self.dataset.get_train_x(), dtype=torch.float32).to(self.device)
         self.y_train = torch.tensor(self.dataset.get_train_y(), dtype=torch.int32).to(self.device)
 
     def get_selected_indices(self):
-        optimizer = torch.optim.Adam(self.zhangnet.parameters(), lr=0.001, betas=(0.9,0.999))
+        optimizer = torch.optim.Adam(self.bsformer.parameters(), lr=0.001, betas=(0.9,0.999))
         dataset = TensorDataset(self.X_train, self.y_train)
-        dataloader = DataLoader(dataset, batch_size=12800000, shuffle=True)
+        dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
         channel_weights = None
         loss = 0
         l1_loss = 0
@@ -79,9 +75,8 @@ class Algorithm_v2(Algorithm):
             self.epoch = epoch
             for batch_idx, (X, y) in enumerate(dataloader):
                 optimizer.zero_grad()
-                channel_weights, sparse_weights, y_hat = self.zhangnet(X)
-                deciding_weights = channel_weights
-                mean_weight, all_bands, selected_bands = self.get_indices(deciding_weights)
+                y_hat, channel_weights = self.bsformer(X)
+                mean_weight, all_bands, selected_bands = self.get_indices(channel_weights)
                 self.set_all_indices(all_bands)
                 self.set_selected_indices(selected_bands)
                 self.set_weights(mean_weight)
@@ -148,7 +143,7 @@ class Algorithm_v2(Algorithm):
         return torch.norm(channel_weights, p=1) / torch.numel(channel_weights)
 
     def get_lambda(self, epoch):
-        return 0.01 * math.exp(-epoch / self.total_epoch)
+        return 0.0001 * math.exp(-epoch/self.total_epoch)
 
 
 

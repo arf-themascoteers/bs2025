@@ -153,8 +153,7 @@ class Reporter:
     def report_epoch(self, epoch, mse_loss, l1_loss, lambda_value, loss,
                      oa,aa,k,
                      min_cw, max_cw, avg_cw,
-                     min_s, max_s, avg_s,
-                     l0_cw, l0_s,
+                     l0_cw,
                      selected_bands, mean_weight):
         if not os.path.exists(self.current_epoch_report_file):
             with open(self.current_epoch_report_file, 'w') as file:
@@ -162,11 +161,10 @@ class Reporter:
                 weight_labels = [f"weight_{i}" for i in weight_labels]
                 weight_labels = ",".join(weight_labels)
                 file.write(f"epoch,"
-                           f"l0_cw,l0_s,"
+                           f"l0_cw,"
                            f"mse_loss,l1_loss,lambda_value,loss,"
                            f"oa,aa,k,"
                            f"min_cw,max_cw,avg_cw,"
-                           f"min_s,max_s,avg_s,"
                            f"selected_bands,selected_weights,{weight_labels}\n")
         with open(self.current_epoch_report_file, 'a') as file:
             weights = [str(Reporter.sanitize_weight(i.item())) for i in mean_weight]

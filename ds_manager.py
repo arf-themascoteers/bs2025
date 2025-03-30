@@ -18,9 +18,6 @@ class DSManager:
     def get_name(self):
         return self.name
 
-    def get_train_data(self):
-        return self.bs_train
-
     def get_train_x_y(self):
         return self.get_train_x(), self.get_train_y()
 
