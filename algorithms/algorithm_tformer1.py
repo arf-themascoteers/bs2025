@@ -8,44 +8,41 @@ import train_test_evaluator
 
 
 class TFormer(nn.Module):
-    def __init__(self, bands, number_of_classes, last_layer_input):
+    def __init__(self, bands, number_of_classes):
         super().__init__()
-
         self.bands = bands
         self.number_of_classes = number_of_classes
-        self.last_layer_input = last_layer_input
-        self.weighter = nn.Sequential(
-            nn.Linear(self.bands, 512),
-            nn.ReLU(),
-            nn.Linear(512, self.bands),
-            nn.Sigmoid()
+        self.vector_length = 16
+        self.embedding_layer = nn.Sequential(
+            nn.Linear(1, self.vector_length),
+            nn.LayerNorm(self.vector_length),
+            nn.GELU()
         )
-        self.classnet = nn.Sequential(
-            nn.Conv1d(1, 16, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm1d(16),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2, stride=2, padding=0),
-            nn.Conv1d(16, 8, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm1d(8),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2, stride=2, padding=0),
-            nn.Conv1d(8, 4, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm1d(4),
-            nn.MaxPool1d(kernel_size=2, stride=2, padding=0),
-            nn.Flatten(start_dim=1),
-            nn.Linear(last_layer_input, self.number_of_classes)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=self.vector_length, nhead=4, dim_feedforward=16,
+                                                   batch_first=True)
+        self.pos_encoding = nn.Parameter(torch.zeros(1, self.bands, self.vector_length))
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=2)
+        self.band_attention = None
+        self.fc_out = nn.Sequential(
+            nn.Linear(self.bands, self.vector_length),
+            nn.LayerNorm(self.vector_length),
+            nn.GELU(),
+            nn.Linear(self.vector_length,self.number_of_classes)
         )
-        self.sparse = Sparse()
         num_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         print("Number of learnable parameters:", num_params)
 
     def forward(self, X):
-        channel_weights = self.weighter(X)
-        sparse_weights = self.sparse(channel_weights)
-        reweight_out = X * sparse_weights
-        reweight_out = reweight_out.reshape(reweight_out.shape[0], 1, reweight_out.shape[1])
-        output = self.classnet(reweight_out)
-        return channel_weights, sparse_weights, output
+        X_mod = X.view(X.size(0), X.size(1),1)
+        X_mod = X_mod.repeat(1,1,16)
+        X_mod = X_mod + self.pos_encoding
+        X_mod = self.transformer(X_mod)
+        X_mod = X_mod.permute(1,0,2)
+        X_mod = X_mod.reshape(X_mod.size(0), -1)
+        self.band_attention = torch.mean(X_mod, dim=1)
+        X = X*self.band_attention
+        y = self.fc_out(X)
+        return y, self.band_attention
 
 
 class Algorithm_tformer1(Algorithm):
@@ -53,15 +50,14 @@ class Algorithm_tformer1(Algorithm):
         super().__init__(target_size, dataset, tag, reporter, verbose, test)
         self.criterion = torch.nn.CrossEntropyLoss()
         self.class_size = len(np.unique(self.dataset.get_train_y()))
-        self.last_layer_input = 100
-        self.bsformer = TFormer(self.dataset.get_train_x().shape[1], self.class_size, self.last_layer_input).to(self.device)
+        self.tformer = TFormer(self.dataset.get_train_x().shape[1], self.class_size).to(self.device)
         self.total_epoch = 500
         self.epoch = -1
         self.X_train = torch.tensor(self.dataset.get_train_x(), dtype=torch.float32).to(self.device)
         self.y_train = torch.tensor(self.dataset.get_train_y(), dtype=torch.int32).to(self.device)
 
     def get_selected_indices(self):
-        optimizer = torch.optim.Adam(self.bsformer.parameters(), lr=0.001, betas=(0.9, 0.999))
+        optimizer = torch.optim.Adam(self.tformer.parameters(), lr=0.001, betas=(0.9, 0.999))
         dataset = TensorDataset(self.X_train, self.y_train)
         dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
         channel_weights = None
@@ -73,8 +69,8 @@ class Algorithm_tformer1(Algorithm):
             self.epoch = epoch
             for batch_idx, (X, y) in enumerate(dataloader):
                 optimizer.zero_grad()
-                y_hat, channel_weights = self.bsformer(X)
-                all_bands, selected_bands = self.get_band_sequence(channel_weights)
+                y_hat, channel_weights = self.tformer(X)
+                all_bands, selected_bands = self.get_band_sequence()
                 self.set_all_indices(all_bands)
                 self.set_selected_indices(selected_bands)
                 self.set_weights(channel_weights)
@@ -91,7 +87,7 @@ class Algorithm_tformer1(Algorithm):
 
         print(self.get_name(), "selected bands and weights:")
         print("".join([str(i).ljust(10) for i in self.selected_indices]))
-        return self.bsformer, self.selected_indices
+        return self.tformer, self.selected_indices
 
     def report_stats(self, channel_weights, epoch, mse_loss, l1_loss, lambda1, loss):
         min_cw = torch.min(channel_weights).item()
@@ -100,7 +96,7 @@ class Algorithm_tformer1(Algorithm):
 
         l0_cw = torch.norm(channel_weights, p=0).item()
 
-        all_bands, selected_bands = self.get_band_sequence(channel_weights)
+        all_bands, selected_bands = self.get_band_sequence()
 
         oa, aa, k = 0, 0, 0
 
@@ -111,10 +107,10 @@ class Algorithm_tformer1(Algorithm):
                                    oa, aa, k,
                                    min_cw, max_cw, avg_cw,
                                    l0_cw,
-                                   selected_bands)
+                                   selected_bands, channel_weights)
 
-    def get_band_sequence(self, channel_weights):
-        band_indx = (torch.argsort(channel_weights, descending=True)).tolist()
+    def get_band_sequence(self):
+        band_indx = (torch.argsort(self.tformer.band_attention, descending=True)).tolist()
         return band_indx, band_indx[: self.target_size]
 
     def l1_loss(self, channel_weights):

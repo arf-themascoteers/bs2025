@@ -1,9 +1,9 @@
 from task_runner import TaskRunner
 
 if __name__ == '__main__':
-    tag = "bsformer"
+    tag = "tformer"
     tasks = {
-        "algorithms" : ["bsformer"],
+        "algorithms" : ["tformer1"],
         "datasets": ["indian_pines"],
         "target_sizes" : [30]
     }

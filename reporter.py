@@ -175,13 +175,12 @@ class Reporter:
             selected_weights_str = '|'.join(selected_weights)
 
             file.write(f"{epoch},"
-                       f"{int(l0_cw)},{int(l0_s)},"
+                       f"{int(l0_cw)},"
                        f"{Reporter.sanitize_metric(mse_loss)},"
                        f"{Reporter.sanitize_small(l1_loss)},{Reporter.sanitize_small(lambda_value)},"
                        f"{Reporter.sanitize_metric(loss)},"
                        f"{Reporter.sanitize_metric(oa)},{Reporter.sanitize_metric(aa)},{Reporter.sanitize_metric(k)},"
                        f"{Reporter.sanitize_weight(min_cw)},{Reporter.sanitize_weight(max_cw)},{Reporter.sanitize_weight(avg_cw)},"
-                       f"{Reporter.sanitize_weight(min_s)},{Reporter.sanitize_weight(max_s)},{Reporter.sanitize_weight(avg_s)},"
                        f"{selected_bands_str},{selected_weights_str},{weights}\n")
 
     def report_weight(self, epoch, weights):
