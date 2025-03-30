@@ -40,9 +40,7 @@ class TFormer(nn.Module):
         attn_weights = attn_weights.mean(dim=1)
         attn_weights = attn_weights.mean(dim=0)
         self.band_attention = self.base_band_attention + attn_weights
-        if epoch < 400:
-            self.band_attention = self.band_attention + 0.1
-        else:
+        if epoch >=400 :
             dk = (180 - 50)/(500 - 400)*(epoch-400)
             k = int(180 - dk)
             print(k)
