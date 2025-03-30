@@ -5,7 +5,7 @@ if __name__ == '__main__':
     tasks = {
         "algorithms" : ["tformer1"],
         "datasets": ["indian_pines"],
-        "target_sizes" : [30]
+        "target_sizes" : [15]
     }
     ev = TaskRunner(tasks,tag,skip_all_bands=True, verbose=True)
     summary, details = ev.evaluate()

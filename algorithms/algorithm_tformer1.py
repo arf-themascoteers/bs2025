@@ -24,6 +24,7 @@ class TFormer(nn.Module):
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=2)
         self.band_attention = None
         self.fc_out = nn.Sequential(
+            nn.LayerNorm(self.bands),
             nn.Linear(self.bands, self.vector_length),
             nn.LayerNorm(self.vector_length),
             nn.GELU(),
@@ -40,6 +41,7 @@ class TFormer(nn.Module):
         X_mod = X_mod.permute(1,0,2)
         X_mod = X_mod.reshape(X_mod.size(0), -1)
         self.band_attention = torch.mean(X_mod, dim=1)
+        self.band_attention = torch.abs(self.band_attention)
         X = X*self.band_attention
         y = self.fc_out(X)
         return y, self.band_attention
@@ -78,7 +80,7 @@ class Algorithm_tformer1(Algorithm):
                 y = y.type(torch.LongTensor).to(self.device)
                 mse_loss = self.criterion(y_hat, y)
                 l1_loss = self.l1_loss(channel_weights)
-                lambda_value = self.get_lambda(epoch + 1)
+                lambda_value = 0.01#self.get_lambda(epoch + 1)
                 loss = mse_loss + lambda_value * l1_loss
                 if batch_idx == 0 and self.epoch % 10 == 0:
                     self.report_stats(channel_weights, epoch, mse_loss, l1_loss.item(), lambda_value,loss)
