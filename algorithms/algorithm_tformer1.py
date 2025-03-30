@@ -18,28 +18,26 @@ class TFormer(nn.Module):
             nn.LayerNorm(self.vector_length),
             nn.GELU()
         )
-        encoder_layer = nn.TransformerEncoderLayer(d_model=self.vector_length, nhead=4, dim_feedforward=16,
-                                                   batch_first=True)
+        self.mha = nn.MultiheadAttention(1, 1, batch_first=True)
+        self.norm = nn.LayerNorm(1)
         self.pos_encoding = nn.Parameter(torch.zeros(1, self.bands,1))
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=2)
         self.band_attention = None
         self.fc_out = nn.Sequential(
-            nn.Linear(self.bands, self.vector_length),
-            nn.LayerNorm(self.vector_length),
+            nn.Linear(self.bands, 16),
+            nn.LayerNorm(16),
             nn.GELU(),
-            nn.Linear(self.vector_length,self.number_of_classes)
+            nn.Linear(16,self.number_of_classes)
         )
         num_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         print("Number of learnable parameters:", num_params)
 
     def forward(self, X, epoch):
         X_mod = X.view(X.size(0), X.size(1),1)
-        X_mod = X_mod.repeat(1,1,16)
         X_mod = X_mod + self.pos_encoding
-        X_mod = self.transformer(X_mod)
-        X_mod = X_mod.permute(1,0,2)
-        X_mod = X_mod.reshape(X_mod.size(0), -1)
-        self.band_attention = torch.mean(X_mod, dim=1)
+        attn_out, attn_weights = self.mha(X_mod, X_mod, X_mod, need_weights=True, average_attn_weights=False)
+        attn_weights = attn_weights.mean(dim=1)
+        attn_weights = attn_weights.mean(dim=1)
+        self.band_attention = attn_weights.mean(dim=0)
         self.band_attention = torch.abs(self.band_attention)
         threshold = torch.topk(self.band_attention, 100).values[-1]
         if epoch >= 100:
