@@ -20,11 +20,10 @@ class TFormer(nn.Module):
         )
         encoder_layer = nn.TransformerEncoderLayer(d_model=self.vector_length, nhead=4, dim_feedforward=16,
                                                    batch_first=True)
-        self.pos_encoding = nn.Parameter(torch.zeros(1, self.bands, self.vector_length))
+        self.pos_encoding = nn.Parameter(torch.zeros(1, self.bands,1))
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=2)
         self.band_attention = None
         self.fc_out = nn.Sequential(
-            nn.LayerNorm(self.bands),
             nn.Linear(self.bands, self.vector_length),
             nn.LayerNorm(self.vector_length),
             nn.GELU(),
@@ -33,7 +32,7 @@ class TFormer(nn.Module):
         num_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         print("Number of learnable parameters:", num_params)
 
-    def forward(self, X):
+    def forward(self, X, epoch):
         X_mod = X.view(X.size(0), X.size(1),1)
         X_mod = X_mod.repeat(1,1,16)
         X_mod = X_mod + self.pos_encoding
@@ -42,6 +41,9 @@ class TFormer(nn.Module):
         X_mod = X_mod.reshape(X_mod.size(0), -1)
         self.band_attention = torch.mean(X_mod, dim=1)
         self.band_attention = torch.abs(self.band_attention)
+        threshold = torch.topk(self.band_attention, 100).values[-1]
+        if epoch >= 100:
+            self.band_attention[self.band_attention<threshold] = 0
         X = X*self.band_attention
         y = self.fc_out(X)
         return y, self.band_attention
@@ -71,7 +73,7 @@ class Algorithm_tformer1(Algorithm):
             self.epoch = epoch
             for batch_idx, (X, y) in enumerate(dataloader):
                 optimizer.zero_grad()
-                y_hat, channel_weights = self.tformer(X)
+                y_hat, channel_weights = self.tformer(X, epoch)
                 all_bands, selected_bands = self.get_band_sequence()
                 self.set_all_indices(all_bands)
                 self.set_selected_indices(selected_bands)
