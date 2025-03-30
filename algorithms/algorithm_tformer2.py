@@ -21,7 +21,7 @@ class TFormer(nn.Module):
         self.mha = nn.MultiheadAttention(1, 1, batch_first=True)
         self.norm = nn.LayerNorm(1)
         self.pos_encoding = nn.Parameter(torch.zeros(1, self.bands,1))
-        self.base_band_attention = nn.Parameter(torch.ones(self.bands))
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.band_attention = None
         self.fc_out = nn.Sequential(
             nn.Linear(self.bands, 16),
@@ -39,8 +39,10 @@ class TFormer(nn.Module):
         attn_weights = attn_weights.mean(dim=1)
         attn_weights = attn_weights.mean(dim=1)
         attn_weights = attn_weights.mean(dim=0)
-        self.band_attention = self.base_band_attention + attn_weights
-        if epoch >=400 :
+        self.band_attention = (attn_weights - attn_weights.min())/(attn_weights.max() - attn_weights.min())
+        if epoch < 400 :
+            self.band_attention = self.band_attention + 0.1
+        else:
             dk = (180 - 50)/(500 - 400)*(epoch-400)
             k = int(180 - dk)
             print(k)
